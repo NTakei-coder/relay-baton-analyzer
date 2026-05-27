@@ -1,23 +1,18 @@
 # Relay Baton Analyzer
 
-Vercel/GitHub 公開用の最新版です。
+白画面対策版です。`package-lock.json` は含めていません。GitHub上に古い `package-lock.json` がある場合は削除してください。
 
-## 重要
+## 必須ファイル
 
-このZIPでは、VercelがOpenAI内部のnpmレジストリを参照しないように `package-lock.json` を削除しています。GitHubにアップロードする際は、古い `package-lock.json` が残っていない状態にしてください。
+- `package.json`
+- `index.html`
+- `.npmrc`
+- `src/main.jsx`
+- `src/App.jsx`
+- `src/style.css`
 
-トップ階層に以下がある構成でアップロードしてください。
+## Vercel
 
-- package.json
-- index.html
-- src/main.jsx
-- src/App.jsx
-- .npmrc
-
-## 更新内容
-
-- PDF出力を廃止し、縦長PNG画像保存へ変更
-- 動画アップロード後にコマ指定エリアへ自動スクロール
-- 動き出しコマを最初、バトンパス完了コマを13番目に変更
-- 理論値欄を簡略化
-- グラフ下に交点との差、出方調整、マーク位置アドバイスを追加
+Framework Preset: Vite
+Build Command: `npm run build`
+Output Directory: `dist`

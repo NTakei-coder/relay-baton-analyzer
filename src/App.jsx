@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import html2canvas from "html2canvas";
 import {
   LineChart,
   Line,
@@ -699,6 +698,7 @@ export default function RelayBatonAnalyzerPrototype() {
     if (!target) return;
     try {
       setSavingImage(true);
+      const { default: html2canvas } = await import("html2canvas");
       const canvas = await html2canvas(target, {
         backgroundColor: "#f8fafc",
         scale: Math.min(2, window.devicePixelRatio || 1.5),
