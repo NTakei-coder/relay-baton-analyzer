@@ -355,6 +355,26 @@ function startGaugePosition(value) {
   return ((clamped - min) / (max - min)) * 100;
 }
 
+function passGaugePosition(distance) {
+  if (!Number.isFinite(distance)) return 50;
+  const min = 3.0;
+  const max = 8.0;
+  const clamped = Math.max(min, Math.min(max, distance));
+  return ((clamped - min) / (max - min)) * 100;
+}
+
+function zonePosition(distance) {
+  if (!Number.isFinite(distance)) return 50;
+  const clamped = Math.max(0, Math.min(30, distance));
+  return (clamped / 30) * 100;
+}
+
+function markShiftText(seconds, distance) {
+  if (!Number.isFinite(seconds) || !Number.isFinite(distance)) return "--";
+  if (Math.abs(seconds) < 0.01 || distance < 0.01) return "調整ほぼ不要";
+  return seconds < 0 ? `約${distance.toFixed(2)}m遠く` : `約${distance.toFixed(2)}m近く`;
+}
+
 function signedText(value, digits = 2) {
   if (!Number.isFinite(value)) return "--";
   return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
@@ -511,6 +531,44 @@ function StartTimingGauge({ value }) {
         <div className="mt-1 flex justify-between text-[11px] font-bold text-slate-500"><span>早い</span><span>ぴったし</span><span>遅い</span></div>
       </div>
       <p className="mt-3 text-xs leading-5 text-slate-500">通常は-0.1秒程度で動き出すのが一般的です。ただし、この目安は動き出しからの時間を基にした参考値であり、スタートの癖や競技レベルによって適切な値は異なります。</p>
+    </div>
+  );
+}
+
+function PassSmoothnessGauge({ distance }) {
+  const smoothness = classifyPassSmoothness(distance);
+  const pointer = passGaugePosition(distance);
+  return (
+    <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">受け渡し評価</p><span className={`rounded-full px-3 py-1 text-xs font-bold ${smoothness.tone}`}>{smoothness.label}</span></div>
+      <div className="mt-3">
+        <div className="relative h-5 overflow-hidden rounded-full bg-slate-100">
+          <div className="absolute inset-y-0 left-0 w-[20%] bg-emerald-300" />
+          <div className="absolute inset-y-0 left-[20%] w-[30%] bg-sky-200" />
+          <div className="absolute inset-y-0 left-[50%] w-[22%] bg-amber-200" />
+          <div className="absolute inset-y-0 left-[72%] w-[28%] bg-rose-200" />
+          <div className="absolute top-0 h-full w-1 -translate-x-1/2 rounded-full bg-slate-900 shadow" style={{ left: `${pointer}%` }} />
+        </div>
+        <div className="mt-1 flex justify-between text-[11px] font-bold text-slate-500"><span>スムーズ</span><span>少しもたつき</span><span>もたつき</span></div>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-slate-500">{smoothness.detail}</p>
+    </div>
+  );
+}
+
+function BatonZonePosition({ distance }) {
+  const pointer = zonePosition(distance);
+  return (
+    <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">バトンゾーン内の完了位置</p><p className="text-xs font-bold text-slate-900">{fmt(distance, 2)} m</p></div>
+      <div className="mt-3">
+        <div className="relative h-8 rounded-full bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-2 text-[10px] font-bold text-slate-500">0m</div>
+          <div className="absolute inset-y-0 right-0 flex items-center pr-2 text-[10px] font-bold text-slate-500">30m</div>
+          <div className="absolute top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-orange-500 shadow" style={{ left: `${pointer}%` }} />
+        </div>
+        <div className="mt-1 flex justify-between text-[11px] text-slate-500"><span>入口</span><span>中央</span><span>出口</span></div>
+      </div>
     </div>
   );
 }
@@ -686,6 +744,7 @@ export default function RelayBatonAnalyzerPrototype() {
     const theoretical30Time = adjustedTheoreticalTime(rawTheoretical30Time, baton30Time, 30, reachDistance);
     const theoretical40Time = adjustedTheoreticalTime(rawTheoretical40Time, baton40Time, 40, reachDistance);
     const passToIntersectionDistance = Number.isFinite(passDistance) && Number.isFinite(intersectionDistance) ? passDistance - intersectionDistance : NaN;
+    const perfectPassDifference = Number.isFinite(estimatedPerfectPassDistance) && Number.isFinite(passDistance) ? estimatedPerfectPassDistance - passDistance : NaN;
     const startAdjustmentFromPerfect = Number.isFinite(timingAdjustedPassTime) && Number.isFinite(intersectionReceiverTime)
       ? timingAdjustedPassTime - intersectionReceiverTime
       : NaN;
@@ -699,7 +758,7 @@ export default function RelayBatonAnalyzerPrototype() {
       const giverVelocity = giverCoeff && x >= -5 && x <= 25 ? Math.max(evalPoly(giverCoeff, x), 0) : null;
       speedChartData.push({ distance: Number(x.toFixed(1)), receiverVelocity: receiverVelocity === null ? null : Number(receiverVelocity.toFixed(3)), giverVelocity: giverVelocity === null ? null : Number(giverVelocity.toFixed(3)) });
     }
-    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, startAdjustmentFromPerfect, markShiftDistance, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
+    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, markShiftDistance, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
   }, [form]);
 
   const smoothness = classifyPassSmoothness(result.handToPassDistance);
@@ -825,17 +884,16 @@ export default function RelayBatonAnalyzerPrototype() {
 
             <div className="mt-3 rounded-3xl border border-emerald-100 bg-emerald-50 p-4">
               <div className="mb-3 flex items-start justify-between gap-2"><div className="flex items-center gap-2 text-emerald-800"><Sparkles className="h-4 w-4" /><h3 className="text-sm font-bold">理論上の最高バトンタイム</h3></div><InfoButton title="理論上の最高バトンタイム">渡し手と受け手の速度グラフの交点でバトンパスが行われたと仮定します。さらに、渡し手と受け手が手を伸ばし合うことで走らなくてよい利得距離を、両者の平均身長として補正します。身長未入力時は1.70mを用います。</InfoButton></div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">交点位置</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.intersectionDistance, 2)} m</p></div>
+              <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">理論30m</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.theoretical30Time)} s</p></div>
                 <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">理論40m</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.theoretical40Time)} s</p></div>
               </div>
               {(String(form.giverHeight ?? "").trim() === "" || String(form.receiverHeight ?? "").trim() === "") ? (
                 <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-                  身長が入力されていない項目があるため、空欄は1.70mの身長として推定しています。片方のみ入力されている場合は、入力された身長と1.70mの平均で計算します。より正確に推定するには、渡し手・受け手の両者の身長を入力してください。
+                  身長を基に手を伸ばしあった距離(最大利得距離)を推定します。精度を上げるには身長を入力してください。
                 </p>
               ) : null}
-              <p className="mt-3 text-xs leading-5 text-emerald-800">速度曲線からの推定値に、手を伸ばし合うことで走らなくてよい距離の補正を加えた参考値です。理論上のタイムは速度グラフの形から推定するため、グラフの形が最適な形から大きく離れている場合、たとえば極端な減速や不自然な速度変化を含む場合には、正しく推定できない可能性があります。実際の受け渡し動作や減速によっても実測値とは異なります。</p>
+              <p className="mt-3 text-xs leading-5 text-emerald-800">理論上のタイムは速度グラフの形から推定するため、グラフの形が最適な形から大きく離れている場合、たとえば極端な減速や不自然な速度変化を含む場合には、正しく推定できない可能性があります。</p>
             </div>
             <div className="mt-3 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
               <h3 className="mb-3 text-sm font-bold text-slate-700">受け渡し局面</h3>
@@ -845,7 +903,8 @@ export default function RelayBatonAnalyzerPrototype() {
                 <MiniMetric label="挙手〜完了時間" value={fmt(result.handToPassTime)} unit="s" />
                 <MiniMetric label="挙手〜完了距離" value={fmt(result.handToPassDistance)} unit="m" />
               </div>
-              <div className="mt-3 rounded-2xl bg-slate-50 p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">受け渡し評価</p><span className={`rounded-full px-3 py-1 text-xs font-bold ${smoothness.tone}`}>{smoothness.label}</span></div><p className="mt-2 text-xs leading-5 text-slate-500">{smoothness.detail}</p></div>
+              <PassSmoothnessGauge distance={result.handToPassDistance} />
+              <BatonZonePosition distance={result.passDistance} />
             </div>
 
             <section className="no-capture mt-3 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
@@ -863,7 +922,7 @@ export default function RelayBatonAnalyzerPrototype() {
 
           <section className="mt-4 space-y-3">
             <StartTimingGauge value={result.startTiming} />
-            <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100"><h2 className="text-sm font-bold text-slate-700">出のタイミングぴったり時の推定完了位置</h2><div className="mt-3 grid grid-cols-2 gap-3"><MiniMetric label="実際の完了位置" value={fmt(result.passDistance)} unit="m" /><MiniMetric label="ぴったし時の推定" value={fmt(result.estimatedPerfectPassDistance)} unit="m" /></div><p className="mt-2 text-xs leading-5 text-slate-500">実際の出のタイミングがぴったし（-0.10秒）だった場合のパス完了位置を、受け手の速度曲線から参考推定しています。タイミングのずれによって受け手や渡し手に減速が生じる場合は推定からずれるため、あくまで参考値です。</p></div>
+            <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100"><h2 className="text-sm font-bold text-slate-700">出のタイミングぴったし時の推定完了位置</h2><div className="mt-3 grid grid-cols-3 gap-3"><MiniMetric label="実際の完了位置" value={fmt(result.passDistance)} unit="m" /><MiniMetric label="ぴったし時の推定" value={fmt(result.estimatedPerfectPassDistance)} unit="m" /><MiniMetric label="差分" value={signedText(result.perfectPassDifference)} unit="m" /></div><p className="mt-2 text-xs leading-5 text-slate-500">実際の出のタイミングがぴったし（-0.10秒）だった場合のパス完了位置を、受け手の速度曲線から参考推定しています。タイミングのずれによって受け手や渡し手に減速が生じる場合は推定からずれるため、あくまで参考値です。</p></div>
           </section>
 
           <section className="mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
@@ -875,12 +934,19 @@ export default function RelayBatonAnalyzerPrototype() {
               <Tooltip formatter={(value, name) => [`${value} m/s`, name === "receiverVelocity" ? "受け手" : "渡し手"]} labelFormatter={(label) => `${label} m地点`} />
               <Legend verticalAlign="bottom" align="center" height={36} wrapperStyle={{ bottom: 0 }} formatter={(value) => (value === "receiverVelocity" ? "受け手" : "渡し手")} />
               {Number.isFinite(result.handDistance) && Number.isFinite(result.passDistance) ? <ReferenceArea x1={Math.min(result.handDistance, result.passDistance)} x2={Math.max(result.handDistance, result.passDistance)} fill="#fde68a" fillOpacity={0.35} /> : null}
-              {Number.isFinite(result.handDistance) ? <ReferenceLine x={Number(result.handDistance.toFixed(1))} stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" label={{ value: "挙手位置", fontSize: 11, fill: "#16a34a" }} /> : null}
-              {Number.isFinite(result.passDistance) ? <ReferenceLine x={Number(result.passDistance.toFixed(1))} stroke="#f97316" strokeWidth={2} strokeDasharray="4 4" label={{ value: "完了位置", fontSize: 11, fill: "#f97316" }} /> : null}
-              {Number.isFinite(result.intersectionDistance) ? <ReferenceLine x={Number(result.intersectionDistance.toFixed(1))} stroke="#a855f7" strokeWidth={2} strokeDasharray="2 4" label={{ value: "交点", fontSize: 11, fill: "#a855f7" }} /> : null}
+              {Number.isFinite(result.handDistance) ? <ReferenceLine x={Number(result.handDistance.toFixed(1))} stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" /> : null}
+              {Number.isFinite(result.passDistance) ? <ReferenceLine x={Number(result.passDistance.toFixed(1))} stroke="#f97316" strokeWidth={2} strokeDasharray="4 4" /> : null}
+              {Number.isFinite(result.intersectionDistance) ? <ReferenceLine x={Number(result.intersectionDistance.toFixed(1))} stroke="#a855f7" strokeWidth={2} strokeDasharray="2 4" /> : null}
               <Line type="monotone" dataKey="giverVelocity" stroke="#ef4444" strokeWidth={3} dot={false} connectNulls name="giverVelocity" />
               <Line type="monotone" dataKey="receiverVelocity" stroke="#2563eb" strokeWidth={3} dot={false} connectNulls name="receiverVelocity" />
             </LineChart></ResponsiveContainer></div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-600">
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1"><span className="h-2 w-4 rounded-full bg-red-500" />渡し手</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1"><span className="h-2 w-4 rounded-full bg-blue-600" />受け手</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1"><span className="h-4 w-1 rounded-full bg-green-600" />挙手位置</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1"><span className="h-4 w-1 rounded-full bg-orange-500" />完了位置</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1"><span className="h-4 w-1 rounded-full bg-purple-500" />速度交点</span>
+            </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">薄い黄色の範囲は、挙手位置からパス完了位置までの受け渡し区間です。</p>
             <div className="mt-3 rounded-2xl bg-slate-50 p-3">
               <div className="grid grid-cols-2 gap-3">
@@ -890,12 +956,13 @@ export default function RelayBatonAnalyzerPrototype() {
                   <p className="mt-1 text-[11px] leading-4 text-slate-500">マイナスは交点より手前、プラスは交点より先で完了したことを示します。</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-slate-500">交点完了への出方調整</p>
+                  <p className="text-xs font-medium text-slate-500">歩数の調整</p>
                   <p className="mt-1 text-xl font-bold text-slate-900">{signedText(result.startAdjustmentFromPerfect, 3)} <span className="text-sm text-slate-500">s</span></p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{markShiftText(result.startAdjustmentFromPerfect, result.markShiftDistance)}</p>
                   <p className="mt-1 text-[11px] leading-4 text-slate-500">ぴったし時を基準に、プラスは遅く、マイナスは早く出る方向です。</p>
                 </div>
               </div>
-              <p className="mt-3 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">{movementAdvice(result.startAdjustmentFromPerfect, result.markShiftDistance)}</p>
+              <p className="mt-3 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">あくまで、出のタイミングとグラフの交点から推定した参考値です。グラフの形が極端な場合(例.過度な減速、速度変化)などにより必ずしも正確ではありません。歩数調整の参考にしてください。</p>
             </div>
           </section>
 
