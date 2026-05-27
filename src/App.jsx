@@ -452,6 +452,18 @@ function StatCard({ icon: Icon, label, value, unit, info, emphasis = false }) {
   );
 }
 
+function MiniMetric({ label, value, unit, info }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium text-slate-500">{label}</p>
+        {info}
+      </div>
+      <p className="mt-1 text-xl font-bold text-slate-900">{value} <span className="text-sm font-medium text-slate-500">{unit}</span></p>
+    </div>
+  );
+}
+
 function SpeedTable({ title, rows }) {
   return (
     <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
