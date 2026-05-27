@@ -1,72 +1,22 @@
 # Relay Baton Analyzer
 
-陸上競技リレーのバトンパス分析用Webアプリです。
+Vercel公開用の安定版です。
 
-## 主な機能
+## Vercelでの設定
 
-- 動画ファイルをブラウザで読み込み
-- FPSの自動推定と手動補正
-- コマ送りによるイベント指定
-- 渡し手・受け手の5mごとの区間速度算出
-- 挙手時距離・バトンパス完了時距離の推定
-- バトン30m通過タイム・40m通過タイムの表示
-- 速度比較グラフ、距離−時間グラフ
-- CSV出力
-
-## 重要な定義
-
-- 渡し手マーク通過コマ：渡し手が受け手のスタートマークを通過する瞬間
-- 動き出しコマ：受け手のつま先が地面から離れた瞬間
-- 挙手コマ：受け手の手が上がり、受ける姿勢で静止した初めのコマ
-- パス完了コマ：バトンが受け手に渡り切った瞬間
-- バトン30m通過タイム：`(受け手30m通過コマ - 渡し手0m通過コマ) / FPS`
-- バトン40m通過タイム：`(受け手40m通過コマ - 渡し手0m通過コマ) / FPS`
-
-## ローカルで確認する方法
-
-Node.js 18以上を推奨します。
-
-```bash
-npm install
-npm run dev
-```
-
-表示されたURLをブラウザで開きます。
-
-## テスト
-
-```bash
-npm test
-```
-
-## 本番ビルド確認
-
-```bash
-npm run build
-npm run preview
-```
-
-## Vercelで公開する方法
-
-1. このフォルダをGitHubリポジトリにアップロードします。
-2. Vercelにログインします。
-3. Add New Project からGitHubリポジトリを選択します。
-4. Framework Preset は `Vite` を選びます。
-5. Build Command は `npm run build`、Output Directory は `dist` にします。
-6. Deploy を押します。
-
-## Netlifyで公開する方法
-
-1. このフォルダをGitHubリポジトリにアップロードします。
-2. Netlifyで New site from Git を選択します。
-3. Build command に `npm run build` を指定します。
-4. Publish directory に `dist` を指定します。
-5. Deploy を押します。
-
-## 動画ファイルの扱い
-
-このアプリは、利用者が選択した動画をブラウザ内で読み込みます。現時点の実装では、動画ファイル自体をサーバーへアップロードしません。
+- Framework Preset: Vite
+- Install Command: npm install
+- Build Command: npm run build
+- Output Directory: dist
+- Node.js Version: 20.x
 
 ## 注意
 
-ブラウザ環境によっては、動画のFPS自動推定が制限される場合があります。その場合は、FPS欄を手動で補正してください。
+前のビルドで `npm error Exit handler never called!` が出た場合は、npm自体または依存関係インストール時の問題です。この版では以下を固定しています。
+
+- Node.js: 20.x
+- npm: 10系
+- Vite/React/Rechartsなどの依存バージョン
+- npm registry: https://registry.npmjs.org/
+
+GitHubのトップに `package.json`, `package-lock.json`, `.nvmrc`, `.npmrc`, `src/` が見える状態でアップロードしてください。
