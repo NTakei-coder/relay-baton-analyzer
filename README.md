@@ -1,41 +1,23 @@
 # Relay Baton Analyzer
 
-リレーのバトンパス分析用Webアプリです。
+Vercel/GitHub 公開用の最新版です。
 
-## 主な機能
+## 重要
 
-- 動画アップロード
-- コマ送りによるフレーム指定
-- 30m/40mバトンタイム算出
-- 出のタイミング評価
-- バトンパス完了位置の推定
-- 理論上の最高バトンタイム推定
-- 結果全体の縦長PNG画像保存
+このZIPでは、VercelがOpenAI内部のnpmレジストリを参照しないように `package-lock.json` を削除しています。GitHubにアップロードする際は、古い `package-lock.json` が残っていない状態にしてください。
 
-## ローカル確認
+トップ階層に以下がある構成でアップロードしてください。
 
-```bash
-npm install
-npm run dev
-```
+- package.json
+- index.html
+- src/main.jsx
+- src/App.jsx
+- .npmrc
 
-## ビルド確認
+## 更新内容
 
-```bash
-npm run build
-npm test
-```
-
-## Vercel公開
-
-GitHubにアップロード後、Vercelで以下の設定にします。
-
-- Framework Preset: Vite
-- Install Command: npm install
-- Build Command: npm run build
-- Output Directory: dist
-- Node.js Version: 20.x
-
-## 注意
-
-動画はブラウザ内で読み込むだけで、サーバーには保存されません。
+- PDF出力を廃止し、縦長PNG画像保存へ変更
+- 動画アップロード後にコマ指定エリアへ自動スクロール
+- 動き出しコマを最初、バトンパス完了コマを13番目に変更
+- 理論値欄を簡略化
+- グラフ下に交点との差、出方調整、マーク位置アドバイスを追加
