@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
 import {
   LineChart,
   Line,
@@ -19,6 +20,7 @@ import {
   ChevronsRight,
   Download,
   FileText,
+  ImageDown,
   Gauge,
   HelpCircle,
   MapPin,
@@ -69,8 +71,8 @@ const DEFAULT_STATE = {
 };
 
 const SELECTION_TASKS = [
-  { type: "form", key: "markFrame", label: "渡し手マーク通過コマ", help: "渡し手が受け手のスタートマークを通過する瞬間のコマを選択してください。" },
   { type: "form", key: "startFrame", label: "動き出しコマ", help: "受け手のつま先が地面から離れた瞬間のコマを選択してください。" },
+  { type: "form", key: "markFrame", label: "渡し手マーク通過コマ", help: "渡し手が受け手のスタートマークを通過する瞬間のコマを選択してください。" },
   { type: "frame", key: "giverMinus5", label: "渡し手 -5m 通過コマ", help: "渡し手が -5m 地点を通過するコマを選択してください。" },
   { type: "frame", key: "giver0", label: "渡し手 0m 通過コマ", help: "渡し手がバトンゾーン入り口（0m地点）を通過するコマを選択してください。" },
   { type: "frame", key: "receiver5", label: "受け手 5m 通過コマ", help: "受け手が 5m 地点を通過するコマを選択してください。" },
@@ -78,10 +80,10 @@ const SELECTION_TASKS = [
   { type: "frame", key: "receiver10", label: "受け手 10m 通過コマ", help: "受け手が 10m 地点を通過するコマを選択してください。" },
   { type: "form", key: "handFrame", label: "挙手コマ", help: "受け手の手が上がり、受ける姿勢で静止した初めのコマを選択してください。" },
   { type: "frame", key: "giver10", label: "渡し手 10m 通過コマ", help: "渡し手が 10m 地点を通過するコマを選択してください。" },
-  { type: "form", key: "passFrame", label: "バトンパス完了コマ", help: "バトンが受け手に渡り、渡し手の手が離れた瞬間のコマを選択してください。" },
   { type: "frame", key: "receiver15", label: "受け手 15m 通過コマ", help: "受け手が 15m 地点を通過するコマを選択してください。" },
   { type: "frame", key: "giver15", label: "渡し手 15m 通過コマ", help: "渡し手が 15m 地点を通過するコマを選択してください。" },
   { type: "frame", key: "receiver20", label: "受け手 20m 通過コマ", help: "受け手が 20m 地点を通過するコマを選択してください。" },
+  { type: "form", key: "passFrame", label: "バトンパス完了コマ", help: "バトンが受け手に渡り、渡し手の手が離れた瞬間のコマを選択してください。" },
   { type: "frame", key: "giver20", label: "渡し手 20m 通過コマ", help: "渡し手が 20m 地点を通過するコマを選択してください。" },
   { type: "frame", key: "receiver25", label: "受け手 25m 通過コマ", help: "受け手が 25m 地点を通過するコマを選択してください。" },
   { type: "frame", key: "giver25", label: "渡し手 25m 通過コマ", help: "渡し手が 25m 地点を通過するコマを選択してください。" },
@@ -226,6 +228,22 @@ function distanceAtTime(table, targetTime) {
   return NaN;
 }
 
+function timeAtDistance(table, targetDistance) {
+  if (!table.length || !Number.isFinite(targetDistance) || targetDistance < 0) return NaN;
+  if (targetDistance <= table[0].distance) return 0;
+  if (targetDistance >= table[table.length - 1].distance) return table[table.length - 1].time;
+
+  for (let i = 1; i < table.length; i += 1) {
+    if (table[i].distance >= targetDistance) {
+      const previous = table[i - 1];
+      const current = table[i];
+      const ratio = (targetDistance - previous.distance) / (current.distance - previous.distance);
+      return previous.time + ratio * (current.time - previous.time);
+    }
+  }
+  return NaN;
+}
+
 function findSpeedIntersection(giverCoeff, receiverCoeff, minX = 0, maxX = 25) {
   if (!giverCoeff || !receiverCoeff) return NaN;
   const diff = (x) => evalPoly(giverCoeff, x) - evalPoly(receiverCoeff, x);
@@ -338,6 +356,20 @@ function startGaugePosition(value) {
   return ((clamped - min) / (max - min)) * 100;
 }
 
+function signedText(value, digits = 2) {
+  if (!Number.isFinite(value)) return "--";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
+}
+
+function movementAdvice(seconds, distance) {
+  if (!Number.isFinite(seconds) || !Number.isFinite(distance)) return "必要なコマを入力すると、マーク位置の参考アドバイスを表示します。";
+  if (Math.abs(seconds) < 0.01 || Math.abs(distance) < 0.01) return "現在の出方は、理論上の交点位置にかなり近いと推定されます。";
+  if (seconds < 0) {
+    return `理論上は、受け手が約${Math.abs(seconds).toFixed(3)}秒早く動き出す必要があります。渡し手の-5〜0m平均速度からみると、スタートマークを約${distance.toFixed(2)}m遠くに置く方向が目安です。`;
+  }
+  return `理論上は、受け手が約${seconds.toFixed(3)}秒遅く動き出す必要があります。渡し手の-5〜0m平均速度からみると、スタートマークを約${distance.toFixed(2)}m近くに置く方向が目安です。`;
+}
+
 function runSelfTests() {
   const close = (actual, expected, tolerance = 1e-6) => Math.abs(actual - expected) <= tolerance;
   console.assert(parseNum("1,234.5") === 1234.5, "parseNum should handle commas");
@@ -346,9 +378,9 @@ function runSelfTests() {
   console.assert(close(elapsedTimeBetweenFrames("100", "160", 60), 1), "elapsedTimeBetweenFrames should compute frame difference divided by fps");
   console.assert(close(travelTimeBetween([5, 0, 0, 0], 0, 10), 2, 0.02), "travelTimeBetween should compute travel time for constant velocity");
   console.assert(close(findSpeedIntersection([8, 0, 0, 0], [4, 1, 0, 0], 0, 10), 4, 0.02), "findSpeedIntersection should find velocity crossing");
-  console.assert(SELECTION_TASKS[7].key === "handFrame", "handFrame task should be 8th");
-  console.assert(SELECTION_TASKS[9].key === "passFrame", "passFrame task should be 10th");
-  console.assert(SELECTION_TASKS[9].help.includes("渡し手の手が離れた瞬間"), "passFrame help text should include the updated definition");
+  console.assert(SELECTION_TASKS[0].key === "startFrame", "startFrame task should be first");
+  console.assert(SELECTION_TASKS[12].key === "passFrame", "passFrame task should be 13th");
+  console.assert(SELECTION_TASKS[12].help.includes("渡し手の手が離れた瞬間"), "passFrame help text should include the updated definition");
   console.assert(heightWithDefault("") === 1.7, "blank height should default to 1.7m");
   console.assert(validateHeight("0.9", "渡し手身長") !== null, "height below 1m should be invalid");
   console.assert(validateHeight("3.1", "受け手身長") !== null, "height above 3m should be invalid");
@@ -359,6 +391,8 @@ function runSelfTests() {
   console.assert(close(adjustedTheoreticalTime(3.5, 3.0, 30, 1.7), 3.33), "adjusted theoretical time should subtract reach-distance gain time");
   console.assert(classifyPassSmoothness(3.9).label === "極めてスムーズ", "pass smoothness classification should detect very smooth");
   console.assert(classifyStartTiming(-0.1).label === "ぴったし", "start timing classification should detect perfect timing");
+  console.assert(movementAdvice(-0.1, 0.9).includes("遠く"), "earlier start should advise moving mark farther");
+  console.assert(movementAdvice(0.1, 0.9).includes("近く"), "later start should advise moving mark closer");
 }
 
 function Field({ label, value, onChange, type = "text", unit, inputMode = "text" }) {
@@ -473,6 +507,8 @@ function StartTimingGauge({ value }) {
 export default function RelayBatonAnalyzerPrototype() {
   const videoRef = useRef(null);
   const passPreviewRef = useRef(null);
+  const selectionSectionRef = useRef(null);
+  const resultCaptureRef = useRef(null);
   const [form, setForm] = useState(DEFAULT_STATE);
   const [videoUrl, setVideoUrl] = useState("");
   const [videoName, setVideoName] = useState("");
@@ -482,6 +518,7 @@ export default function RelayBatonAnalyzerPrototype() {
   const [taskIndex, setTaskIndex] = useState(0);
   const [passPreviewOffset, setPassPreviewOffset] = useState(0);
   const [fpsStatus, setFpsStatus] = useState("動画を読み込むとFPSの自動推定を試みます。必要に応じて手動補正できます。");
+  const [savingImage, setSavingImage] = useState(false);
 
   useEffect(() => { runSelfTests(); }, []);
   useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); }, [videoUrl]);
@@ -517,6 +554,9 @@ export default function RelayBatonAnalyzerPrototype() {
     setTaskIndex(0);
     setPassPreviewOffset(0);
     setFpsStatus("動画を読み込み中です。読み込み後にFPSの自動推定を試みます。");
+    window.setTimeout(() => {
+      selectionSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 250);
   };
 
   const estimateFps = async () => {
@@ -627,24 +667,62 @@ export default function RelayBatonAnalyzerPrototype() {
     const baton30Time = elapsedTimeBetweenFrames(form.frames.giver0, form.frames.receiver30, fps);
     const baton40Time = elapsedTimeBetweenFrames(form.frames.giver0, form.frames.receiver40, fps);
     const intersectionDistance = findSpeedIntersection(giverCoeff, receiverCoeff, 0, 25);
+    const intersectionReceiverTime = receiverTable.length ? timeAtDistance(receiverTable, intersectionDistance) : NaN;
     const rawTheoretical30Time = Number.isFinite(intersectionDistance) ? travelTimeBetween(giverCoeff, 0, intersectionDistance) + travelTimeBetween(receiverCoeff, intersectionDistance, 30) : NaN;
     const rawTheoretical40Time = Number.isFinite(intersectionDistance) ? travelTimeBetween(giverCoeff, 0, intersectionDistance) + travelTimeBetween(receiverCoeff, intersectionDistance, 40) : NaN;
     const gainTime30 = Number.isFinite(baton30Time) && baton30Time > 0 && Number.isFinite(reachDistance) ? reachDistance / (30 / baton30Time) : NaN;
     const gainTime40 = Number.isFinite(baton40Time) && baton40Time > 0 && Number.isFinite(reachDistance) ? reachDistance / (40 / baton40Time) : NaN;
     const theoretical30Time = adjustedTheoreticalTime(rawTheoretical30Time, baton30Time, 30, reachDistance);
     const theoretical40Time = adjustedTheoreticalTime(rawTheoretical40Time, baton40Time, 40, reachDistance);
+    const passToIntersectionDistance = Number.isFinite(passDistance) && Number.isFinite(intersectionDistance) ? passDistance - intersectionDistance : NaN;
+    const startAdjustmentFromPerfect = Number.isFinite(timingAdjustedPassTime) && Number.isFinite(intersectionReceiverTime)
+      ? timingAdjustedPassTime - intersectionReceiverTime
+      : NaN;
+    const giverEntrySpeed = giverRows.find((row) => row.label === "-5-0m")?.speed;
+    const markShiftDistance = Number.isFinite(startAdjustmentFromPerfect) && Number.isFinite(giverEntrySpeed)
+      ? Math.abs(startAdjustmentFromPerfect) * giverEntrySpeed
+      : NaN;
     const speedChartData = [];
     for (let x = -5; x <= 40; x += 0.5) {
       const receiverVelocity = receiverCoeff && x >= 0 && x <= 40 ? Math.max(evalPoly(receiverCoeff, x), 0) : null;
       const giverVelocity = giverCoeff && x >= -5 && x <= 25 ? Math.max(evalPoly(giverCoeff, x), 0) : null;
       speedChartData.push({ distance: Number(x.toFixed(1)), receiverVelocity: receiverVelocity === null ? null : Number(receiverVelocity.toFixed(3)), giverVelocity: giverVelocity === null ? null : Number(giverVelocity.toFixed(3)) });
     }
-    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, reachDistance, gainTime30, gainTime40, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
+    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, startAdjustmentFromPerfect, markShiftDistance, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
   }, [form]);
 
   const smoothness = classifyPassSmoothness(result.handToPassDistance);
   const reset = () => { setForm(DEFAULT_STATE); setTaskIndex(0); setPassPreviewOffset(0); };
-  const exportPdf = () => window.print();
+
+  const saveResultImage = async () => {
+    const target = resultCaptureRef.current;
+    if (!target) return;
+    try {
+      setSavingImage(true);
+      const canvas = await html2canvas(target, {
+        backgroundColor: "#f8fafc",
+        scale: Math.min(2, window.devicePixelRatio || 1.5),
+        useCORS: true,
+        logging: false,
+        ignoreElements: (element) => element.classList?.contains("no-capture"),
+      });
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `baton-analysis-${new Date().toISOString().slice(0, 10)}.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }, "image/png");
+    } catch (_error) {
+      window.alert("画像保存に失敗しました。ブラウザを更新して再度お試しください。");
+    } finally {
+      setSavingImage(false);
+    }
+  };
 
   return (
     <>
@@ -658,7 +736,7 @@ export default function RelayBatonAnalyzerPrototype() {
         }
       `}</style>
       <div className="min-h-screen bg-slate-50 text-slate-900">
-        <div className="print-area mx-auto max-w-md px-4 pb-28 pt-5">
+        <div ref={resultCaptureRef} className="mx-auto max-w-md px-4 pb-28 pt-5">
           <header className="mb-5">
             <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white shadow-sm"><Activity className="h-3.5 w-3.5" />Relay Baton Analyzer</div>
             <h1 className="mt-3 text-2xl font-bold tracking-tight">バトンパス分析</h1>
@@ -677,10 +755,10 @@ export default function RelayBatonAnalyzerPrototype() {
               <Field label="渡し手身長" value={form.giverHeight} onChange={(value) => setField("giverHeight", value)} unit="m" inputMode="decimal" />
               <Field label="受け手身長" value={form.receiverHeight} onChange={(value) => setField("receiverHeight", value)} unit="m" inputMode="decimal" />
             </div>
-            <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">身長は1.00〜3.00mの範囲で入力してください。未入力の場合は1.70mとして計算し、渡し手と受け手の平均身長を「手を伸ばし合った利得距離」として扱います。</p>
+            <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">未入力の場合は1.70mとして計算し、渡し手と受け手の平均身長を「手を伸ばし合った利得距離」として扱います。</p>
           </section>
 
-          <section className="no-print mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
+          <section className="no-capture mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
             <div className="mb-3 flex items-center gap-2"><Upload className="h-4 w-4 text-slate-500" /><h2 className="text-sm font-bold text-slate-700">動画アップロード</h2></div>
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center active:scale-[0.99]">
               <Upload className="h-6 w-6 text-slate-400" /><span className="mt-2 text-sm font-bold text-slate-700">動画を選択</span><span className="mt-1 text-xs text-slate-400">mp4 / mov など</span>
@@ -691,7 +769,7 @@ export default function RelayBatonAnalyzerPrototype() {
           </section>
 
           {videoUrl ? (
-            <section className="no-print mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
+            <section ref={selectionSectionRef} className="no-capture mt-4 scroll-mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
               <div className={instructionCardClass}>
                 <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs opacity-80">次に選択するコマ</p><p className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">{taskIndex + 1} / {SELECTION_TASKS.length}</p></div>
                 <h3 className="text-xl font-bold">{activeTask.label}</h3>
@@ -737,35 +815,30 @@ export default function RelayBatonAnalyzerPrototype() {
               <div className="mb-3 flex items-start justify-between gap-2"><div className="flex items-center gap-2 text-emerald-800"><Sparkles className="h-4 w-4" /><h3 className="text-sm font-bold">理論上の最高バトンタイム</h3></div><InfoButton title="理論上の最高バトンタイム">渡し手と受け手の速度グラフの交点でバトンパスが行われたと仮定します。さらに、渡し手と受け手が手を伸ばし合うことで走らなくてよい利得距離を、両者の平均身長として補正します。身長未入力時は1.70mを用います。</InfoButton></div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">交点位置</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.intersectionDistance, 2)} m</p></div>
-                <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">理論30m</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.theoretical30Time)} s</p><p className="mt-1 text-[10px] text-slate-400">補正前 {fmt(result.rawTheoretical30Time)} s</p></div>
-                <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">理論40m</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.theoretical40Time)} s</p><p className="mt-1 text-[10px] text-slate-400">補正前 {fmt(result.rawTheoretical40Time)} s</p></div>
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-2xl bg-white/70 p-2"><p className="text-[10px] font-medium text-emerald-700">利得距離</p><p className="text-sm font-bold text-emerald-900">{fmt(result.reachDistance, 2)} m</p></div>
-                <div className="rounded-2xl bg-white/70 p-2"><p className="text-[10px] font-medium text-emerald-700">30m補正</p><p className="text-sm font-bold text-emerald-900">-{fmt(result.gainTime30)} s</p></div>
-                <div className="rounded-2xl bg-white/70 p-2"><p className="text-[10px] font-medium text-emerald-700">40m補正</p><p className="text-sm font-bold text-emerald-900">-{fmt(result.gainTime40)} s</p></div>
+                <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">理論30m</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.theoretical30Time)} s</p></div>
+                <div className="rounded-2xl bg-white p-3"><p className="text-[11px] font-medium text-slate-500">理論40m</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(result.theoretical40Time)} s</p></div>
               </div>
               {(String(form.giverHeight ?? "").trim() === "" || String(form.receiverHeight ?? "").trim() === "") ? (
                 <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
                   身長が入力されていない項目があるため、空欄は1.70mの身長として推定しています。片方のみ入力されている場合は、入力された身長と1.70mの平均で計算します。より正確に推定するには、渡し手・受け手の両者の身長を入力してください。
                 </p>
               ) : null}
-              <p className="mt-3 text-xs leading-5 text-emerald-800">速度曲線からの推定値に、手を伸ばし合うことで走らなくてよい距離の補正を加えた参考値です。理論上のタイムは速度グラフの形から推定するため、グラフの形が最適な形から大きく離れている場合、たとえば極端な減速や不自然な速度変化を含む場合には、正しく推定できない可能性があります。実際の受け渡し動作、減速、接触リスク、競技者の癖によっても実測値とは異なります。</p>
+              <p className="mt-3 text-xs leading-5 text-emerald-800">速度曲線からの推定値に、手を伸ばし合うことで走らなくてよい距離の補正を加えた参考値です。理論上のタイムは速度グラフの形から推定するため、グラフの形が最適な形から大きく離れている場合、たとえば極端な減速や不自然な速度変化を含む場合には、正しく推定できない可能性があります。実際の受け渡し動作や減速によっても実測値とは異なります。</p>
             </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <StatCard icon={MapPin} label="挙手時距離" value={fmt(result.handDistance)} unit="m" info={<InfoButton title="挙手時距離">挙手時点における受け手の位置です。受け手の速度曲線から推定しています。</InfoButton>} />
-              <StatCard icon={MapPin} label="パス完了時距離" value={fmt(result.passDistance)} unit="m" info={<InfoButton title="パス完了時距離">バトンパス完了時点における受け手の位置です。受け手の速度曲線から推定しています。</InfoButton>} />
-            </div>
-
             <div className="mt-3 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
-              <div className="grid grid-cols-2 gap-3"><div><p className="text-xs text-slate-500">挙手〜完了時間</p><p className="mt-1 text-xl font-bold text-slate-900">{fmt(result.handToPassTime)} <span className="text-sm font-medium text-slate-500">s</span></p></div><div><p className="text-xs text-slate-500">挙手〜完了距離</p><p className="mt-1 text-xl font-bold text-slate-900">{fmt(result.handToPassDistance)} <span className="text-sm font-medium text-slate-500">m</span></p></div></div>
+              <h3 className="mb-3 text-sm font-bold text-slate-700">受け渡し局面</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <MiniMetric label="挙手時距離" value={fmt(result.handDistance)} unit="m" info={<InfoButton title="挙手時距離">挙手時点における受け手の位置です。受け手の速度曲線から推定しています。</InfoButton>} />
+                <MiniMetric label="パス完了時距離" value={fmt(result.passDistance)} unit="m" info={<InfoButton title="パス完了時距離">バトンパス完了時点における受け手の位置です。受け手の速度曲線から推定しています。</InfoButton>} />
+                <MiniMetric label="挙手〜完了時間" value={fmt(result.handToPassTime)} unit="s" />
+                <MiniMetric label="挙手〜完了距離" value={fmt(result.handToPassDistance)} unit="m" />
+              </div>
               <div className="mt-3 rounded-2xl bg-slate-50 p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">受け渡し評価</p><span className={`rounded-full px-3 py-1 text-xs font-bold ${smoothness.tone}`}>{smoothness.label}</span></div><p className="mt-2 text-xs leading-5 text-slate-500">{smoothness.detail}</p></div>
             </div>
 
-            <section className="no-print mt-3 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
+            <section className="no-capture mt-3 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
               <h3 className="text-sm font-bold text-slate-700">バトンパス参考コマ</h3>
-              <p className="mt-1 text-xs leading-5 text-slate-500">バトンパス完了コマの約0.1秒前を初期表示します。厳密には欲しい場面から少しずれている可能性があるため、前後のコマ送りで調整してください。</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">バトンパス時の手の伸ばし具合や渡りのスムーズ差をコマ送りでチェックしてください。</p>
               {videoUrl && Number.isFinite(previewFrame) ? (
                 <>
                   <video ref={passPreviewRef} src={videoUrl} muted playsInline className="mt-3 w-full rounded-2xl bg-black" />
@@ -778,17 +851,17 @@ export default function RelayBatonAnalyzerPrototype() {
 
           <section className="mt-4 space-y-3">
             <StartTimingGauge value={result.startTiming} />
-            <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100"><h2 className="text-sm font-bold text-slate-700">出のタイミングぴったり時の推定完了位置</h2><div className="mt-3 flex items-end gap-1"><span className="text-3xl font-bold tracking-tight text-slate-900">{fmt(result.estimatedPerfectPassDistance)}</span><span className="pb-1 text-sm text-slate-500">m</span></div><p className="mt-2 text-xs leading-5 text-slate-500">実際の出のタイミングがぴったし（-0.10秒）だった場合のパス完了位置を、受け手の速度曲線から参考推定しています。タイミングのずれによって受け手や渡し手に減速が生じる場合は推定からずれるため、あくまで参考値です。</p></div>
+            <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100"><h2 className="text-sm font-bold text-slate-700">出のタイミングぴったり時の推定完了位置</h2><div className="mt-3 grid grid-cols-2 gap-3"><MiniMetric label="実際の完了位置" value={fmt(result.passDistance)} unit="m" /><MiniMetric label="ぴったし時の推定" value={fmt(result.estimatedPerfectPassDistance)} unit="m" /></div><p className="mt-2 text-xs leading-5 text-slate-500">実際の出のタイミングがぴったし（-0.10秒）だった場合のパス完了位置を、受け手の速度曲線から参考推定しています。タイミングのずれによって受け手や渡し手に減速が生じる場合は推定からずれるため、あくまで参考値です。</p></div>
           </section>
 
           <section className="mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
             <div className="mb-2 flex items-center justify-between"><h2 className="text-sm font-bold text-slate-700">渡し手・受け手の速度比較</h2><span className="text-xs text-slate-400">3次回帰</span></div>
-            <div className="h-72 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={result.speedChartData} margin={{ top: 12, right: 12, left: 0, bottom: 24 }}>
+            <div className="h-80 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={result.speedChartData} margin={{ top: 12, right: 12, left: 0, bottom: 54 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="distance" type="number" domain={[-5, 40]} ticks={[-5, 0, 5, 10, 15, 20, 25, 30, 35, 40]} tick={{ fontSize: 11 }} label={{ value: "バトンゾーン入り口からの距離(m)", position: "insideBottom", offset: -12, fontSize: 11 }} />
+              <XAxis dataKey="distance" type="number" domain={[-5, 40]} ticks={[-5, 0, 5, 10, 15, 20, 25, 30, 35, 40]} tick={{ fontSize: 11 }} label={{ value: "バトンゾーン入り口からの距離(m)", position: "insideBottom", offset: -24, fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} domain={[0, "auto"]} label={{ value: "走速度(m/s)", angle: -90, position: "insideLeft", fontSize: 11 }} />
               <Tooltip formatter={(value, name) => [`${value} m/s`, name === "receiverVelocity" ? "受け手" : "渡し手"]} labelFormatter={(label) => `${label} m地点`} />
-              <Legend verticalAlign="bottom" height={28} formatter={(value) => (value === "receiverVelocity" ? "受け手" : "渡し手")} />
+              <Legend verticalAlign="bottom" align="center" height={36} wrapperStyle={{ bottom: 0 }} formatter={(value) => (value === "receiverVelocity" ? "受け手" : "渡し手")} />
               {Number.isFinite(result.handDistance) && Number.isFinite(result.passDistance) ? <ReferenceArea x1={Math.min(result.handDistance, result.passDistance)} x2={Math.max(result.handDistance, result.passDistance)} fill="#fde68a" fillOpacity={0.35} /> : null}
               {Number.isFinite(result.handDistance) ? <ReferenceLine x={Number(result.handDistance.toFixed(1))} stroke="#16a34a" strokeWidth={2} strokeDasharray="4 4" label={{ value: "挙手位置", fontSize: 11, fill: "#16a34a" }} /> : null}
               {Number.isFinite(result.passDistance) ? <ReferenceLine x={Number(result.passDistance.toFixed(1))} stroke="#f97316" strokeWidth={2} strokeDasharray="4 4" label={{ value: "完了位置", fontSize: 11, fill: "#f97316" }} /> : null}
@@ -797,6 +870,21 @@ export default function RelayBatonAnalyzerPrototype() {
               <Line type="monotone" dataKey="receiverVelocity" stroke="#2563eb" strokeWidth={3} dot={false} connectNulls name="receiverVelocity" />
             </LineChart></ResponsiveContainer></div>
             <p className="mt-2 text-xs leading-5 text-slate-500">薄い黄色の範囲は、挙手位置からパス完了位置までの受け渡し区間です。</p>
+            <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-medium text-slate-500">完了位置−交点</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{signedText(result.passToIntersectionDistance)} <span className="text-sm text-slate-500">m</span></p>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-500">マイナスは交点より手前、プラスは交点より先で完了したことを示します。</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500">交点完了への出方調整</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{signedText(result.startAdjustmentFromPerfect, 3)} <span className="text-sm text-slate-500">s</span></p>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-500">ぴったし時を基準に、プラスは遅く、マイナスは早く出る方向です。</p>
+                </div>
+              </div>
+              <p className="mt-3 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">{movementAdvice(result.startAdjustmentFromPerfect, result.markShiftDistance)}</p>
+            </div>
           </section>
 
           <section className="mt-4 space-y-4"><SpeedTable title="渡し手の区間速度" rows={result.giverRows} /><SpeedTable title="受け手の区間速度" rows={result.receiverRows} /></section>
@@ -813,7 +901,7 @@ export default function RelayBatonAnalyzerPrototype() {
             </div>
           </section>
         </div>
-        <div className="no-print fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur"><div className="mx-auto grid max-w-md grid-cols-2 gap-3"><button onClick={reset} className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm active:scale-[0.99]"><RotateCcw className="h-4 w-4" />リセット</button><button onClick={exportPdf} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-sm active:scale-[0.99]"><Download className="h-4 w-4" />PDF出力</button></div></div>
+        <div className="no-capture fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur"><div className="mx-auto grid max-w-md grid-cols-2 gap-3"><button onClick={reset} className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm active:scale-[0.99]"><RotateCcw className="h-4 w-4" />リセット</button><button onClick={saveResultImage} disabled={savingImage} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-sm active:scale-[0.99] disabled:opacity-60">{savingImage ? <ImageDown className="h-4 w-4 animate-pulse" /> : <Download className="h-4 w-4" />}{savingImage ? "画像作成中" : "画像保存"}</button></div></div>
       </div>
     </>
   );
