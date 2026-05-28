@@ -370,10 +370,10 @@ function zonePosition(distance) {
   return (clamped / 30) * 100;
 }
 
-function markShiftText(seconds, distance) {
-  if (!Number.isFinite(seconds) || !Number.isFinite(distance)) return "--";
-  if (Math.abs(seconds) < 0.01 || distance < 0.01) return "調整ほぼ不要";
-  return seconds < 0 ? `約${distance.toFixed(2)}m遠く` : `約${distance.toFixed(2)}m近く`;
+function markShiftText(markShift, distance) {
+  if (!Number.isFinite(markShift) || !Number.isFinite(distance)) return "--";
+  if (Math.abs(markShift) < 0.01 || distance < 0.01) return "調整ほぼ不要";
+  return markShift > 0 ? `約${distance.toFixed(2)}m遠く` : `約${distance.toFixed(2)}m近く`;
 }
 
 function footLengthFromShoeSize(value) {
@@ -382,30 +382,53 @@ function footLengthFromShoeSize(value) {
   return (shoeSize + 1) / 100;
 }
 
-function idealPassPositionForMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, markShift) {
-  if (!receiverTable.length || !Number.isFinite(baseIdealPassTime) || !Number.isFinite(giverEntrySpeed) || giverEntrySpeed <= 0 || !Number.isFinite(markShift)) return NaN;
-  return distanceAtTime(receiverTable, baseIdealPassTime + markShift / giverEntrySpeed);
+function timeDifferenceBetweenPositions(receiverCoeff, giverCoeff, fromX, toX) {
+  if (!receiverCoeff || !giverCoeff || !Number.isFinite(fromX) || !Number.isFinite(toX)) return NaN;
+  if (Math.abs(toX - fromX) < 1e-6) return 0;
+
+  const direction = toX >= fromX ? 1 : -1;
+  const startX = Math.min(fromX, toX);
+  const endX = Math.max(fromX, toX);
+  const steps = 240;
+  const dx = (endX - startX) / steps;
+  let total = 0;
+
+  for (let i = 0; i < steps; i += 1) {
+    const x1 = startX + dx * i;
+    const x2 = x1 + dx;
+    const receiverV1 = evalPoly(receiverCoeff, x1);
+    const receiverV2 = evalPoly(receiverCoeff, x2);
+    const giverV1 = evalPoly(giverCoeff, x1);
+    const giverV2 = evalPoly(giverCoeff, x2);
+    if (![receiverV1, receiverV2, giverV1, giverV2].every((value) => Number.isFinite(value) && value > 0)) return NaN;
+    const y1 = 1 / receiverV1 - 1 / giverV1;
+    const y2 = 1 / receiverV2 - 1 / giverV2;
+    total += ((y1 + y2) / 2) * dx;
+  }
+
+  return total * direction;
 }
 
-function findBestMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, targetDistance) {
-  if (!receiverTable.length || !Number.isFinite(baseIdealPassTime) || !Number.isFinite(giverEntrySpeed) || giverEntrySpeed <= 0 || !Number.isFinite(targetDistance)) return NaN;
+function idealPassPositionForMarkShift(receiverCoeff, giverCoeff, baseIdealPosition, giverEntrySpeed, markShift) {
+  if (!receiverCoeff || !giverCoeff || !Number.isFinite(baseIdealPosition) || !Number.isFinite(giverEntrySpeed) || giverEntrySpeed <= 0 || !Number.isFinite(markShift)) return NaN;
 
-  let bestShift = 0;
+  const targetTimeDifference = markShift / giverEntrySpeed;
+  let bestPosition = baseIdealPosition;
   let bestError = Infinity;
-  const minShift = -5;
-  const maxShift = 5;
+  const minX = Math.max(0, Math.min(baseIdealPosition, 30) - 12);
+  const maxX = Math.min(40, Math.max(baseIdealPosition, 30) + 12);
   const step = 0.01;
 
-  for (let shift = minShift; shift <= maxShift + 1e-9; shift += step) {
-    const position = idealPassPositionForMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, shift);
-    const error = Math.abs(position - targetDistance);
+  for (let x = minX; x <= maxX + 1e-9; x += step) {
+    const timeDifference = timeDifferenceBetweenPositions(receiverCoeff, giverCoeff, baseIdealPosition, x);
+    const error = Math.abs(timeDifference - targetTimeDifference);
     if (Number.isFinite(error) && error < bestError) {
       bestError = error;
-      bestShift = shift;
+      bestPosition = x;
     }
   }
 
-  return bestShift;
+  return bestPosition;
 }
 
 function markShiftDirection(shift) {
@@ -425,12 +448,12 @@ function crossDifferenceText(position, crossDistance) {
   return `${Math.abs(diff).toFixed(2)} m${diff < 0 ? "手前" : "奥"}`;
 }
 
-function buildFootReferenceRows(receiverTable, baseIdealPassTime, giverEntrySpeed, crossDistance, footLength) {
+function buildFootReferenceRows(receiverCoeff, giverCoeff, baseIdealPosition, giverEntrySpeed, crossDistance, footLength) {
   if (!Number.isFinite(footLength) || footLength <= 0) return [];
   const steps = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2];
   return steps.map((step) => {
     const markShift = step * footLength;
-    const position = idealPassPositionForMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, markShift);
+    const position = idealPassPositionForMarkShift(receiverCoeff, giverCoeff, baseIdealPosition, giverEntrySpeed, markShift);
     const label = step === 0 ? "現在" : `${Math.abs(step)}足長 ${step > 0 ? "遠く" : "近く"}`;
     return { label, position, difference: crossDifferenceText(position, crossDistance) };
   });
@@ -478,6 +501,8 @@ function runSelfTests() {
   console.assert(markShiftDirection(-0.2) === "近く", "negative mark shift should mean closer");
   console.assert(crossDifferenceText(10, 11).includes("手前"), "position before cross should be labelled before");
   console.assert(crossDifferenceText(12, 11).includes("奥"), "position after cross should be labelled after");
+  console.assert(close(timeDifferenceBetweenPositions([4, 0, 0, 0], [8, 0, 0, 0], 0, 4), 0.5, 0.01), "time difference should integrate receiver minus giver travel time");
+  console.assert(close(idealPassPositionForMarkShift([4, 0, 0, 0], [8, 0, 0, 0], 0, 8, 4), 4, 0.05), "mark shift should map through time difference, not distance difference directly");
 }
 
 function Field({ label, value, onChange, type = "text", unit, inputMode = "text" }) {
@@ -817,20 +842,21 @@ export default function RelayBatonAnalyzerPrototype() {
       ? timingAdjustedPassTime - intersectionReceiverTime
       : NaN;
     const giverEntrySpeed = giverRows.find((row) => row.label === "-5-0m")?.speed;
-    const markShiftDistance = Number.isFinite(startAdjustmentFromPerfect) && Number.isFinite(giverEntrySpeed)
-      ? Math.abs(startAdjustmentFromPerfect) * giverEntrySpeed
+    const requiredLeadTime = timeDifferenceBetweenPositions(receiverCoeff, giverCoeff, estimatedPerfectPassDistance, intersectionDistance);
+    const requiredMarkShift = Number.isFinite(requiredLeadTime) && Number.isFinite(giverEntrySpeed)
+      ? requiredLeadTime * giverEntrySpeed
       : NaN;
-    const requiredMarkShift = findBestMarkShift(receiverTable, timingAdjustedPassTime, giverEntrySpeed, intersectionDistance);
+    const markShiftDistance = Number.isFinite(requiredMarkShift) ? Math.abs(requiredMarkShift) : NaN;
     const requiredMarkShiftDistance = Number.isFinite(requiredMarkShift) ? Math.abs(requiredMarkShift) : NaN;
     const requiredFootCount = Number.isFinite(footLength) ? Math.abs(requiredMarkShift) / footLength : NaN;
-    const footReferenceRows = buildFootReferenceRows(receiverTable, timingAdjustedPassTime, giverEntrySpeed, intersectionDistance, footLength);
+    const footReferenceRows = buildFootReferenceRows(receiverCoeff, giverCoeff, estimatedPerfectPassDistance, giverEntrySpeed, intersectionDistance, footLength);
     const speedChartData = [];
     for (let x = -5; x <= 40; x += 0.5) {
       const receiverVelocity = receiverCoeff && x >= 0 && x <= 40 ? Math.max(evalPoly(receiverCoeff, x), 0) : null;
       const giverVelocity = giverCoeff && x >= -5 && x <= 25 ? Math.max(evalPoly(giverCoeff, x), 0) : null;
       speedChartData.push({ distance: Number(x.toFixed(1)), receiverVelocity: receiverVelocity === null ? null : Number(receiverVelocity.toFixed(3)), giverVelocity: giverVelocity === null ? null : Number(giverVelocity.toFixed(3)) });
     }
-    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, markShiftDistance, footLength, requiredMarkShift, requiredMarkShiftDistance, requiredFootCount, footReferenceRows, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
+    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, requiredLeadTime, markShiftDistance, footLength, requiredMarkShift, requiredMarkShiftDistance, requiredFootCount, footReferenceRows, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
   }, [form]);
 
   const smoothness = classifyPassSmoothness(result.handToPassDistance);
@@ -1031,12 +1057,12 @@ export default function RelayBatonAnalyzerPrototype() {
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-xs font-medium text-slate-500">歩数の調整</p>
                     <InfoButton title="スタートマーク調整量">
-                      スタートマーク調整量は、実際のバトンパス完了位置ではなく、「出のタイミングがぴったりだった」と仮定した場合の推定完了位置を基準に計算しています。実際の完了位置には、受け手が出るタイミングのズレ、反応の遅れ、早出、受け渡し動作の影響などが含まれます。そのため、実際の完了位置をそのまま使うと、スタートマークの問題と出のタイミングの問題が混ざってしまいます。このアプリでは、まず「現在のスタートマークで、受け手がぴったりのタイミングで走り出した場合」の完了位置を推定します。その推定完了位置と、渡し手・受け手の速度交点との差をもとに、スタートマークをどれくらい遠く、または近くに動かすべきかを計算します。ただし、完了位置が速度交点より3 m手前だからといって、スタートマークを3 m遠くするわけではありません。3 mという値は「完了位置のズレ」であり、「スタートマークの変更量」ではありません。スタートマークを遠くすると、渡し手がそのマークに早く到達するため、受け手のスタートが早くなります。逆に、スタートマークを近くすると、受け手のスタートは遅くなります。そのため、実際の計算では、スタートマークを少しずつ変更した場合の受け手のスタート時刻とバトンパス完了位置を再計算し、速度交点で完了するマーク位置を探索しています。表示される「足長」は、現場で調整しやすいように換算した値です。1足長は、靴の外側の長さを考慮して「靴サイズ＋1 cm」として計算しています。
+                      スタートマーク調整量は、実際のバトンパス完了位置ではなく、「出のタイミングがぴったりだった」と仮定した場合の推定完了位置を基準に計算しています。実際の完了位置には、受け手が出るタイミングのズレ、反応の遅れ、早出、受け渡し動作の影響などが含まれます。そのため、実際の完了位置をそのまま使うと、スタートマークの問題と出のタイミングの問題が混ざってしまいます。このアプリでは、まず「現在のスタートマークで、受け手がぴったりのタイミングで走り出した場合」の完了位置を推定します。その推定完了位置と、渡し手・受け手の速度交点との差をもとに、スタートマークをどれくらい遠く、または近くに動かすべきかを計算します。ただし、完了位置が速度交点より3 m手前だからといって、スタートマークを3 m遠くするわけではありません。3 mという値は「完了位置のズレ」であり、「スタートマークの変更量」ではありません。スタートマークを遠くすると、渡し手がそのマークに早く到達するため、受け手のスタートが早くなります。逆に、スタートマークを近くすると、受け手のスタートは遅くなります。そのため、実際の計算では、推定完了位置から速度交点までの区間について、受け手と渡し手の通過時間差を見積もり、その時間差をマーク付近の渡し手速度に掛けてスタートマーク変更量に換算しています。表示される「足長」は、現場で調整しやすいように換算した値です。1足長は、靴の外側の長さを考慮して「靴サイズ＋1 cm」として計算しています。
                     </InfoButton>
                   </div>
-                  <p className="mt-1 text-xl font-bold text-slate-900">{signedText(result.startAdjustmentFromPerfect, 3)} <span className="text-sm text-slate-500">s</span></p>
-                  <p className="mt-1 text-sm font-bold text-slate-900">{Number.isFinite(result.requiredMarkShift) ? markShiftText(result.startAdjustmentFromPerfect, result.requiredMarkShiftDistance) : "--"}</p>
-                  <p className="mt-1 text-[11px] leading-4 text-slate-500">ぴったし時を基準に、プラスは遅く、マイナスは早く出る方向です。</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{signedText(result.requiredLeadTime, 3)} <span className="text-sm text-slate-500">s</span></p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{Number.isFinite(result.requiredMarkShift) ? markShiftText(result.requiredMarkShift, result.requiredMarkShiftDistance) : "--"}</p>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-500">プラスは受け手を早く出す方向、マイナスは受け手を遅く出す方向です。</p>
                 </div>
               </div>
               <div className="mt-3 rounded-2xl bg-white p-3">
