@@ -43,6 +43,7 @@ const DEFAULT_STATE = {
   receiver: "",
   attempt: "",
   steps: "",
+  shoeSize: "",
   giverHeight: "",
   receiverHeight: "",
   fps: "",
@@ -375,6 +376,66 @@ function markShiftText(seconds, distance) {
   return seconds < 0 ? `約${distance.toFixed(2)}m遠く` : `約${distance.toFixed(2)}m近く`;
 }
 
+function footLengthFromShoeSize(value) {
+  const shoeSize = parseNum(value);
+  if (!Number.isFinite(shoeSize) || shoeSize <= 0) return NaN;
+  return (shoeSize + 1) / 100;
+}
+
+function idealPassPositionForMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, markShift) {
+  if (!receiverTable.length || !Number.isFinite(baseIdealPassTime) || !Number.isFinite(giverEntrySpeed) || giverEntrySpeed <= 0 || !Number.isFinite(markShift)) return NaN;
+  return distanceAtTime(receiverTable, baseIdealPassTime + markShift / giverEntrySpeed);
+}
+
+function findBestMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, targetDistance) {
+  if (!receiverTable.length || !Number.isFinite(baseIdealPassTime) || !Number.isFinite(giverEntrySpeed) || giverEntrySpeed <= 0 || !Number.isFinite(targetDistance)) return NaN;
+
+  let bestShift = 0;
+  let bestError = Infinity;
+  const minShift = -5;
+  const maxShift = 5;
+  const step = 0.01;
+
+  for (let shift = minShift; shift <= maxShift + 1e-9; shift += step) {
+    const position = idealPassPositionForMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, shift);
+    const error = Math.abs(position - targetDistance);
+    if (Number.isFinite(error) && error < bestError) {
+      bestError = error;
+      bestShift = shift;
+    }
+  }
+
+  return bestShift;
+}
+
+function markShiftDirection(shift) {
+  if (!Number.isFinite(shift) || Math.abs(shift) < 0.01) return "適切";
+  return shift > 0 ? "遠く" : "近く";
+}
+
+function footCountText(markShift, footLength) {
+  if (!Number.isFinite(markShift) || !Number.isFinite(footLength) || footLength <= 0) return "--";
+  return (Math.abs(markShift) / footLength).toFixed(1);
+}
+
+function crossDifferenceText(position, crossDistance) {
+  if (!Number.isFinite(position) || !Number.isFinite(crossDistance)) return "--";
+  const diff = position - crossDistance;
+  if (Math.abs(diff) < 0.05) return "ほぼ一致";
+  return `${Math.abs(diff).toFixed(2)} m${diff < 0 ? "手前" : "奥"}`;
+}
+
+function buildFootReferenceRows(receiverTable, baseIdealPassTime, giverEntrySpeed, crossDistance, footLength) {
+  if (!Number.isFinite(footLength) || footLength <= 0) return [];
+  const steps = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2];
+  return steps.map((step) => {
+    const markShift = step * footLength;
+    const position = idealPassPositionForMarkShift(receiverTable, baseIdealPassTime, giverEntrySpeed, markShift);
+    const label = step === 0 ? "現在" : `${Math.abs(step)}足長 ${step > 0 ? "遠く" : "近く"}`;
+    return { label, position, difference: crossDifferenceText(position, crossDistance) };
+  });
+}
+
 function signedText(value, digits = 2) {
   if (!Number.isFinite(value)) return "--";
   return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
@@ -412,6 +473,11 @@ function runSelfTests() {
   console.assert(classifyStartTiming(-0.1).label === "ぴったし", "start timing classification should detect perfect timing");
   console.assert(movementAdvice(-0.1, 0.9).includes("遠く"), "earlier start should advise moving mark farther");
   console.assert(movementAdvice(0.1, 0.9).includes("近く"), "later start should advise moving mark closer");
+  console.assert(close(footLengthFromShoeSize("26"), 0.27), "foot length should be shoe size plus 1cm converted to meters");
+  console.assert(markShiftDirection(0.2) === "遠く", "positive mark shift should mean farther");
+  console.assert(markShiftDirection(-0.2) === "近く", "negative mark shift should mean closer");
+  console.assert(crossDifferenceText(10, 11).includes("手前"), "position before cross should be labelled before");
+  console.assert(crossDifferenceText(12, 11).includes("奥"), "position after cross should be labelled after");
 }
 
 function Field({ label, value, onChange, type = "text", unit, inputMode = "text" }) {
@@ -705,6 +771,7 @@ export default function RelayBatonAnalyzerPrototype() {
     const hand = parseNum(form.handFrame);
     const pass = parseNum(form.passFrame);
     const reachDistance = reachDistanceFromHeights(form.giverHeight, form.receiverHeight);
+    const footLength = footLengthFromShoeSize(form.shoeSize);
     const frameMap = { ...form.frames, startFrame: form.startFrame };
     const receiverRows = frameSpeeds(RECEIVER_FRAME_POINTS, frameMap, fps);
     const giverRows = frameSpeeds(GIVER_FRAME_POINTS, frameMap, fps);
@@ -716,6 +783,7 @@ export default function RelayBatonAnalyzerPrototype() {
     const receiverHeightError = validateHeight(form.receiverHeight, "受け手身長");
     if (giverHeightError) warnings.push(giverHeightError);
     if (receiverHeightError) warnings.push(receiverHeightError);
+    if (String(form.shoeSize ?? "").trim() !== "" && !Number.isFinite(footLength)) warnings.push("靴のサイズは正の数で入力してください。");
     if (Number.isFinite(hand) && Number.isFinite(start) && hand < start) warnings.push("挙手コマは動き出しコマ以降にしてください。");
     if (Number.isFinite(pass) && Number.isFinite(start) && pass < start) warnings.push("パス完了コマは動き出しコマ以降にしてください。");
     if (receiverValid.length < 4) warnings.push("受け手の距離推定には、少なくとも4区間分の速度が必要です。");
@@ -752,13 +820,17 @@ export default function RelayBatonAnalyzerPrototype() {
     const markShiftDistance = Number.isFinite(startAdjustmentFromPerfect) && Number.isFinite(giverEntrySpeed)
       ? Math.abs(startAdjustmentFromPerfect) * giverEntrySpeed
       : NaN;
+    const requiredMarkShift = findBestMarkShift(receiverTable, timingAdjustedPassTime, giverEntrySpeed, intersectionDistance);
+    const requiredMarkShiftDistance = Number.isFinite(requiredMarkShift) ? Math.abs(requiredMarkShift) : NaN;
+    const requiredFootCount = Number.isFinite(footLength) ? Math.abs(requiredMarkShift) / footLength : NaN;
+    const footReferenceRows = buildFootReferenceRows(receiverTable, timingAdjustedPassTime, giverEntrySpeed, intersectionDistance, footLength);
     const speedChartData = [];
     for (let x = -5; x <= 40; x += 0.5) {
       const receiverVelocity = receiverCoeff && x >= 0 && x <= 40 ? Math.max(evalPoly(receiverCoeff, x), 0) : null;
       const giverVelocity = giverCoeff && x >= -5 && x <= 25 ? Math.max(evalPoly(giverCoeff, x), 0) : null;
       speedChartData.push({ distance: Number(x.toFixed(1)), receiverVelocity: receiverVelocity === null ? null : Number(receiverVelocity.toFixed(3)), giverVelocity: giverVelocity === null ? null : Number(giverVelocity.toFixed(3)) });
     }
-    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, markShiftDistance, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
+    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, markShiftDistance, footLength, requiredMarkShift, requiredMarkShiftDistance, requiredFootCount, footReferenceRows, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
   }, [form]);
 
   const smoothness = classifyPassSmoothness(result.handToPassDistance);
@@ -956,11 +1028,45 @@ export default function RelayBatonAnalyzerPrototype() {
                   <p className="mt-1 text-[11px] leading-4 text-slate-500">マイナスは交点より手前、プラスは交点より先で完了したことを示します。</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-slate-500">歩数の調整</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs font-medium text-slate-500">歩数の調整</p>
+                    <InfoButton title="スタートマーク調整量">
+                      スタートマーク調整量は、実際のバトンパス完了位置ではなく、「出のタイミングがぴったりだった」と仮定した場合の推定完了位置を基準に計算しています。実際の完了位置には、受け手が出るタイミングのズレ、反応の遅れ、早出、受け渡し動作の影響などが含まれます。そのため、実際の完了位置をそのまま使うと、スタートマークの問題と出のタイミングの問題が混ざってしまいます。このアプリでは、まず「現在のスタートマークで、受け手がぴったりのタイミングで走り出した場合」の完了位置を推定します。その推定完了位置と、渡し手・受け手の速度交点との差をもとに、スタートマークをどれくらい遠く、または近くに動かすべきかを計算します。ただし、完了位置が速度交点より3 m手前だからといって、スタートマークを3 m遠くするわけではありません。3 mという値は「完了位置のズレ」であり、「スタートマークの変更量」ではありません。スタートマークを遠くすると、渡し手がそのマークに早く到達するため、受け手のスタートが早くなります。逆に、スタートマークを近くすると、受け手のスタートは遅くなります。そのため、実際の計算では、スタートマークを少しずつ変更した場合の受け手のスタート時刻とバトンパス完了位置を再計算し、速度交点で完了するマーク位置を探索しています。表示される「足長」は、現場で調整しやすいように換算した値です。1足長は、靴の外側の長さを考慮して「靴サイズ＋1 cm」として計算しています。
+                    </InfoButton>
+                  </div>
                   <p className="mt-1 text-xl font-bold text-slate-900">{signedText(result.startAdjustmentFromPerfect, 3)} <span className="text-sm text-slate-500">s</span></p>
-                  <p className="mt-1 text-sm font-bold text-slate-900">{markShiftText(result.startAdjustmentFromPerfect, result.markShiftDistance)}</p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{Number.isFinite(result.requiredMarkShift) ? markShiftText(result.startAdjustmentFromPerfect, result.requiredMarkShiftDistance) : "--"}</p>
                   <p className="mt-1 text-[11px] leading-4 text-slate-500">ぴったし時を基準に、プラスは遅く、マイナスは早く出る方向です。</p>
                 </div>
+              </div>
+              <div className="mt-3 rounded-2xl bg-white p-3">
+                <Field label="靴のサイズ（cm）" value={form.shoeSize} onChange={(value) => setField("shoeSize", value)} unit="cm" inputMode="decimal" />
+                <p className="mt-2 text-xs leading-5 text-slate-500">出のタイミングがぴったりだった場合に、速度交点でバトンパスを完了するためのスタートマーク調整量を推定します。1足長は「靴サイズ＋1 cm」で計算します。</p>
+                <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                  {Number.isFinite(result.requiredMarkShift) && Math.abs(result.requiredMarkShift) < 0.01 ? (
+                    <p className="text-sm font-bold text-slate-900">現在のスタートマーク位置でほぼ適切です</p>
+                  ) : Number.isFinite(result.requiredMarkShift) && Number.isFinite(result.footLength) ? (
+                    <div>
+                      <p className="text-xs leading-5 text-slate-500">出のタイミングがぴったりだった場合、速度交点で完了するには</p>
+                      <p className="mt-1 text-base font-bold text-slate-900">スタートマークを {footCountText(result.requiredMarkShift, result.footLength)}足長 {markShiftDirection(result.requiredMarkShift)} にしてください</p>
+                      <p className="mt-1 text-xs font-bold text-slate-600">目安：{result.requiredMarkShiftDistance.toFixed(2)} m {markShiftDirection(result.requiredMarkShift)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-bold text-slate-900">靴のサイズを入力すると、足長換算の調整量を表示します。</p>
+                  )}
+                </div>
+                {result.footReferenceRows.length > 0 ? (
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-slate-100">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-500"><tr><th className="px-2 py-2 text-left">マーク変更</th><th className="px-2 py-2 text-right">推定完了位置</th><th className="px-2 py-2 text-right">速度交点との差</th></tr></thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {result.footReferenceRows.map((row) => (
+                          <tr key={row.label}><td className="px-2 py-2 font-medium text-slate-700">{row.label}</td><td className="px-2 py-2 text-right font-semibold text-slate-900">{fmt(row.position, 2)} m</td><td className="px-2 py-2 text-right text-slate-600">{row.difference}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
               </div>
               <p className="mt-3 rounded-xl bg-white p-3 text-xs leading-5 text-slate-600">あくまで、出のタイミングとグラフの交点から推定した参考値です。グラフの形が極端な場合(例.過度な減速、速度変化)などにより必ずしも正確ではありません。歩数調整の参考にしてください。</p>
             </div>
