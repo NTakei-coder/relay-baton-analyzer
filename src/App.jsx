@@ -34,7 +34,19 @@ import {
   Upload,
 } from "lucide-react";
 
-const PERFECT_START_TIMING = -0.1;
+const PERFECT_START_TIMING = -0.08;
+const PERFECT_START_TIMING_TOLERANCE = 0.03;
+const START_TIMING_BAND_WIDTH = 0.06;
+const START_TIMING_BOUNDS = {
+  gaugeMin: PERFECT_START_TIMING - PERFECT_START_TIMING_TOLERANCE - START_TIMING_BAND_WIDTH * 4,
+  veryEarlyUpper: PERFECT_START_TIMING - PERFECT_START_TIMING_TOLERANCE - START_TIMING_BAND_WIDTH * 2,
+  earlyUpper: PERFECT_START_TIMING - PERFECT_START_TIMING_TOLERANCE - START_TIMING_BAND_WIDTH,
+  slightlyEarlyUpper: PERFECT_START_TIMING - PERFECT_START_TIMING_TOLERANCE,
+  perfectUpper: PERFECT_START_TIMING + PERFECT_START_TIMING_TOLERANCE,
+  slightlyLateUpper: PERFECT_START_TIMING + PERFECT_START_TIMING_TOLERANCE + START_TIMING_BAND_WIDTH,
+  lateUpper: PERFECT_START_TIMING + PERFECT_START_TIMING_TOLERANCE + START_TIMING_BAND_WIDTH * 2,
+  gaugeMax: PERFECT_START_TIMING + PERFECT_START_TIMING_TOLERANCE + START_TIMING_BAND_WIDTH * 4,
+};
 
 const DEFAULT_STATE = {
   date: "",
@@ -331,37 +343,51 @@ function adjustedTheoreticalTime(rawTheoreticalTime, actualBatonTime, targetDist
 
 function classifyPassSmoothness(distance) {
   if (!Number.isFinite(distance)) return { label: "判定不可", tone: "bg-slate-100 text-slate-500", detail: "挙手〜完了距離を算出すると評価が表示されます。" };
-  if (distance < 4.0) return { label: "極めてスムーズ", tone: "bg-emerald-100 text-emerald-700", detail: "挙手から完了までの移動距離が短く、受け渡しが非常にまとまっています。" };
-  if (distance <= 5.5) return { label: "スムーズ", tone: "bg-sky-100 text-sky-700", detail: "挙手から完了までの距離は良好な範囲です。" };
-  if (distance <= 6.6) return { label: "少しもたつき", tone: "bg-amber-100 text-amber-700", detail: "受け渡しにやや時間・距離を要しています。" };
-  return { label: "かなりもたつき", tone: "bg-rose-100 text-rose-700", detail: "挙手から完了までの距離が長く、受け渡し局面の改善余地が大きい可能性があります。" };
+  if (distance < 4.0) return { label: "極めてスムーズ", tone: "bg-emerald-100 text-emerald-700", detail: "挙手から完了までの距離が非常に短く、受け手の加速を妨げにくい受け渡しです。" };
+  if (distance < 5.5) return { label: "スムーズ", tone: "bg-sky-100 text-sky-700", detail: "挙手から完了までの距離が比較的短く、受け手の加速を大きく邪魔しにくい受け渡しです。" };
+  if (distance <= 6.2) return { label: "少しもたつき", tone: "bg-amber-100 text-amber-700", detail: "挙手から完了までの距離がやや長く、受け手が手を出したまま走る時間が増え、加速を少し邪魔している可能性があります。" };
+  if (distance <= 6.7) return { label: "もたつき", tone: "bg-orange-100 text-orange-700", detail: "挙手から完了までの距離が長く、受け手の自然な腕振りや加速を妨げている可能性があります。" };
+  return { label: "かなりもたつき", tone: "bg-rose-100 text-rose-700", detail: "挙手から完了までの距離がかなり長く、受け手の加速を大きく邪魔している可能性があります。" };
 }
 
 function classifyStartTiming(value) {
   if (!Number.isFinite(value)) return { label: "判定不可", tone: "bg-slate-100 text-slate-500" };
-  if (value >= 0.13) return { label: "かなり遅い", tone: "bg-rose-100 text-rose-700" };
-  if (value >= 0.04) return { label: "遅い", tone: "bg-orange-100 text-orange-700" };
-  if (value >= -0.05) return { label: "少し遅い", tone: "bg-amber-100 text-amber-700" };
-  if (value >= -0.14) return { label: "ぴったし", tone: "bg-emerald-100 text-emerald-700" };
-  if (value >= -0.23) return { label: "少し早い", tone: "bg-sky-100 text-sky-700" };
-  if (value >= -0.32) return { label: "早い", tone: "bg-indigo-100 text-indigo-700" };
-  return { label: "かなり早い", tone: "bg-violet-100 text-violet-700" };
+  if (value >= START_TIMING_BOUNDS.lateUpper) return { label: "かなり遅い", tone: "bg-rose-100 text-rose-700" };
+  if (value >= START_TIMING_BOUNDS.slightlyLateUpper) return { label: "遅い", tone: "bg-orange-100 text-orange-700" };
+  if (value >= START_TIMING_BOUNDS.perfectUpper) return { label: "少し遅い", tone: "bg-amber-100 text-amber-700" };
+  if (value >= START_TIMING_BOUNDS.slightlyEarlyUpper) return { label: "ぴったし", tone: "bg-emerald-100 text-emerald-700" };
+  if (value >= START_TIMING_BOUNDS.earlyUpper) return { label: "少し早い", tone: "bg-sky-100 text-sky-700" };
+  if (value >= START_TIMING_BOUNDS.veryEarlyUpper) return { label: "早い", tone: "bg-blue-100 text-blue-700" };
+  return { label: "かなり早い", tone: "bg-indigo-100 text-indigo-700" };
+}
+
+function startTimingDifferenceFromPerfect(value) {
+  if (!Number.isFinite(value)) return NaN;
+  return value - PERFECT_START_TIMING;
+}
+
+function startGaugePercent(value) {
+  const min = START_TIMING_BOUNDS.gaugeMin;
+  const max = START_TIMING_BOUNDS.gaugeMax;
+  const clamped = Math.max(min, Math.min(max, value));
+  return ((clamped - min) / (max - min)) * 100;
 }
 
 function startGaugePosition(value) {
   if (!Number.isFinite(value)) return 50;
-  const min = -0.4;
-  const max = 0.2;
-  const clamped = Math.max(min, Math.min(max, value));
+  return startGaugePercent(value);
+}
+
+function passGaugePercent(distance) {
+  const min = 2.2;
+  const max = 7.8;
+  const clamped = Math.max(min, Math.min(max, distance));
   return ((clamped - min) / (max - min)) * 100;
 }
 
 function passGaugePosition(distance) {
   if (!Number.isFinite(distance)) return 50;
-  const min = 3.0;
-  const max = 8.0;
-  const clamped = Math.max(min, Math.min(max, distance));
-  return ((clamped - min) / (max - min)) * 100;
+  return passGaugePercent(distance);
 }
 
 function zonePosition(distance) {
@@ -493,7 +519,14 @@ function runSelfTests() {
   console.assert(close(reachDistanceFromHeights("", "1.6"), 1.65), "blank giver height should be treated as 1.7m while preserving receiver height");
   console.assert(close(adjustedTheoreticalTime(3.5, 3.0, 30, 1.7), 3.33), "adjusted theoretical time should subtract reach-distance gain time");
   console.assert(classifyPassSmoothness(3.9).label === "極めてスムーズ", "pass smoothness classification should detect very smooth");
-  console.assert(classifyStartTiming(-0.1).label === "ぴったし", "start timing classification should detect perfect timing");
+  console.assert(classifyPassSmoothness(5.4).label === "スムーズ", "4.0-5.4m should be smooth");
+  console.assert(classifyPassSmoothness(5.8).label === "少しもたつき", "5.5-6.2m should be slightly delayed");
+  console.assert(classifyPassSmoothness(6.5).label === "もたつき", "6.3-6.7m should be delayed");
+  console.assert(classifyPassSmoothness(6.8).label === "かなりもたつき", "6.8m or more should be very delayed");
+  console.assert(classifyStartTiming(PERFECT_START_TIMING).label === "ぴったし", "start timing classification should detect perfect timing at -0.08");
+  console.assert(classifyStartTiming(-0.05).label === "ぴったし", "-0.05 should be perfect upper edge");
+  console.assert(classifyStartTiming(-0.04).label === "少し遅い", "-0.04 should be slightly late");
+  console.assert(classifyStartTiming(-0.12).label === "少し早い", "-0.12 should be slightly early");
   console.assert(movementAdvice(-0.1, 0.9).includes("遠く"), "earlier start should advise moving mark farther");
   console.assert(movementAdvice(0.1, 0.9).includes("近く"), "later start should advise moving mark closer");
   console.assert(close(footLengthFromShoeSize("26"), 0.27), "foot length should be shoe size plus 1cm converted to meters");
@@ -612,16 +645,26 @@ function StartTimingGauge({ value }) {
       <div className="mt-3 flex items-end gap-1"><span className="text-3xl font-bold tracking-tight">{fmt(value)}</span><span className="pb-1 text-sm text-slate-500">s</span></div>
       <div className="mt-4">
         <div className="relative h-5 overflow-hidden rounded-full bg-slate-100">
-          <div className="absolute inset-y-0 left-0 w-[28%] bg-indigo-200" />
-          <div className="absolute inset-y-0 left-[28%] w-[16%] bg-sky-200" />
-          <div className="absolute inset-y-0 left-[44%] w-[14%] bg-emerald-300" />
-          <div className="absolute inset-y-0 left-[58%] w-[14%] bg-amber-200" />
-          <div className="absolute inset-y-0 left-[72%] w-[28%] bg-rose-200" />
+          <div className="absolute inset-y-0 bg-indigo-200" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.gaugeMin)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.veryEarlyUpper) - startGaugePercent(START_TIMING_BOUNDS.gaugeMin)}%` }} />
+          <div className="absolute inset-y-0 bg-blue-200" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.veryEarlyUpper)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.earlyUpper) - startGaugePercent(START_TIMING_BOUNDS.veryEarlyUpper)}%` }} />
+          <div className="absolute inset-y-0 bg-sky-200" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.earlyUpper)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.slightlyEarlyUpper) - startGaugePercent(START_TIMING_BOUNDS.earlyUpper)}%` }} />
+          <div className="absolute inset-y-0 bg-emerald-300" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.slightlyEarlyUpper)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.perfectUpper) - startGaugePercent(START_TIMING_BOUNDS.slightlyEarlyUpper)}%` }} />
+          <div className="absolute inset-y-0 bg-amber-200" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.perfectUpper)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.slightlyLateUpper) - startGaugePercent(START_TIMING_BOUNDS.perfectUpper)}%` }} />
+          <div className="absolute inset-y-0 bg-orange-200" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.slightlyLateUpper)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.lateUpper) - startGaugePercent(START_TIMING_BOUNDS.slightlyLateUpper)}%` }} />
+          <div className="absolute inset-y-0 bg-rose-200" style={{ left: `${startGaugePercent(START_TIMING_BOUNDS.lateUpper)}%`, width: `${startGaugePercent(START_TIMING_BOUNDS.gaugeMax) - startGaugePercent(START_TIMING_BOUNDS.lateUpper)}%` }} />
           <div className="absolute top-0 h-full w-1 -translate-x-1/2 rounded-full bg-slate-900 shadow" style={{ left: `${pointer}%` }} />
         </div>
-        <div className="mt-1 flex justify-between text-[11px] font-bold text-slate-500"><span>早い</span><span>ぴったし</span><span>遅い</span></div>
+        <div className="relative mt-1 h-7 text-[8px] font-bold leading-tight">
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-indigo-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.gaugeMin) + startGaugePercent(START_TIMING_BOUNDS.veryEarlyUpper)) / 2}%` }}>かなり早い</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-blue-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.veryEarlyUpper) + startGaugePercent(START_TIMING_BOUNDS.earlyUpper)) / 2}%` }}>早い</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-sky-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.earlyUpper) + startGaugePercent(START_TIMING_BOUNDS.slightlyEarlyUpper)) / 2}%` }}>少し早い</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-emerald-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.slightlyEarlyUpper) + startGaugePercent(START_TIMING_BOUNDS.perfectUpper)) / 2}%` }}>ぴったし</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-amber-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.perfectUpper) + startGaugePercent(START_TIMING_BOUNDS.slightlyLateUpper)) / 2}%` }}>少し遅い</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-orange-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.slightlyLateUpper) + startGaugePercent(START_TIMING_BOUNDS.lateUpper)) / 2}%` }}>遅い</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-rose-700" style={{ left: `${(startGaugePercent(START_TIMING_BOUNDS.lateUpper) + startGaugePercent(START_TIMING_BOUNDS.gaugeMax)) / 2}%` }}>かなり遅い</span>
+        </div>
       </div>
-      <p className="mt-3 text-xs leading-5 text-slate-500">通常は-0.1秒程度で動き出すのが一般的です。ただし、この目安は動き出しからの時間を基にした参考値であり、スタートの癖や競技レベルによって適切な値は異なります。</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">通常は-0.08秒を基準にし、-0.11秒〜-0.05秒をぴったしとして判定します。出がぴったしだった場合の推定完了位置や歩数調整も、この-0.08秒を基準に計算します。ただし、この目安は動き出しからの時間を基にした参考値であり、スタートの癖や競技レベルによって適切な値は異なります。</p>
     </div>
   );
 }
@@ -629,18 +672,26 @@ function StartTimingGauge({ value }) {
 function PassSmoothnessGauge({ distance }) {
   const smoothness = classifyPassSmoothness(distance);
   const pointer = passGaugePosition(distance);
+  const center = (a, b) => (passGaugePercent(a) + passGaugePercent(b)) / 2;
   return (
     <div className="mt-3 rounded-2xl bg-slate-50 p-3">
       <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-600">受け渡し評価</p><span className={`rounded-full px-3 py-1 text-xs font-bold ${smoothness.tone}`}>{smoothness.label}</span></div>
       <div className="mt-3">
         <div className="relative h-5 overflow-hidden rounded-full bg-slate-100">
-          <div className="absolute inset-y-0 left-0 w-[20%] bg-emerald-300" />
-          <div className="absolute inset-y-0 left-[20%] w-[30%] bg-sky-200" />
-          <div className="absolute inset-y-0 left-[50%] w-[22%] bg-amber-200" />
-          <div className="absolute inset-y-0 left-[72%] w-[28%] bg-rose-200" />
+          <div className="absolute inset-y-0 bg-emerald-300" style={{ left: `${passGaugePercent(2.2)}%`, width: `${passGaugePercent(4.0) - passGaugePercent(2.2)}%` }} />
+          <div className="absolute inset-y-0 bg-sky-200" style={{ left: `${passGaugePercent(4.0)}%`, width: `${passGaugePercent(5.5) - passGaugePercent(4.0)}%` }} />
+          <div className="absolute inset-y-0 bg-amber-200" style={{ left: `${passGaugePercent(5.5)}%`, width: `${passGaugePercent(6.3) - passGaugePercent(5.5)}%` }} />
+          <div className="absolute inset-y-0 bg-orange-200" style={{ left: `${passGaugePercent(6.3)}%`, width: `${passGaugePercent(6.8) - passGaugePercent(6.3)}%` }} />
+          <div className="absolute inset-y-0 bg-rose-200" style={{ left: `${passGaugePercent(6.8)}%`, width: `${passGaugePercent(7.8) - passGaugePercent(6.8)}%` }} />
           <div className="absolute top-0 h-full w-1 -translate-x-1/2 rounded-full bg-slate-900 shadow" style={{ left: `${pointer}%` }} />
         </div>
-        <div className="mt-1 flex justify-between text-[11px] font-bold text-slate-500"><span>スムーズ</span><span>少しもたつき</span><span>もたつき</span></div>
+        <div className="relative mt-1 h-7 text-[8px] font-bold leading-tight">
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-emerald-700" style={{ left: `${center(2.2, 4.0)}%` }}>極めてスムーズ</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-sky-700" style={{ left: `${center(4.0, 5.5)}%` }}>スムーズ</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-amber-700" style={{ left: `${center(5.5, 6.3)}%` }}>少しもたつき</span>
+          <span className="absolute -translate-x-1/2 whitespace-nowrap text-orange-700" style={{ left: `${center(6.3, 6.8)}%` }}>もたつき</span>
+          <span className="absolute -translate-x-1/2 text-rose-700" style={{ left: `${center(6.8, 7.8)}%` }}>かなり<br />もたつき</span>
+        </div>
       </div>
       <p className="mt-2 text-xs leading-5 text-slate-500">{smoothness.detail}</p>
     </div>
@@ -824,7 +875,8 @@ export default function RelayBatonAnalyzerPrototype() {
     if (Number.isFinite(passTime) && Number.isFinite(maxReceiverTime) && passTime > maxReceiverTime) warnings.push("パス完了時刻が受け手40m到達時間を超えています。40mで打ち切って表示します。");
     const handDistance = receiverTable.length ? distanceAtTime(receiverTable, handTime) : NaN;
     const passDistance = receiverTable.length ? distanceAtTime(receiverTable, passTime) : NaN;
-    const timingAdjustedPassTime = Number.isFinite(passTime) && Number.isFinite(startTiming) ? passTime + (startTiming - PERFECT_START_TIMING) : NaN;
+    const startTimingDiffFromPerfect = startTimingDifferenceFromPerfect(startTiming);
+    const timingAdjustedPassTime = Number.isFinite(passTime) && Number.isFinite(startTimingDiffFromPerfect) ? passTime + startTimingDiffFromPerfect : NaN;
     const estimatedPerfectPassDistance = receiverTable.length ? distanceAtTime(receiverTable, timingAdjustedPassTime) : NaN;
     const baton30Time = elapsedTimeBetweenFrames(form.frames.giver0, form.frames.receiver30, fps);
     const baton40Time = elapsedTimeBetweenFrames(form.frames.giver0, form.frames.receiver40, fps);
@@ -856,7 +908,7 @@ export default function RelayBatonAnalyzerPrototype() {
       const giverVelocity = giverCoeff && x >= -5 && x <= 25 ? Math.max(evalPoly(giverCoeff, x), 0) : null;
       speedChartData.push({ distance: Number(x.toFixed(1)), receiverVelocity: receiverVelocity === null ? null : Number(receiverVelocity.toFixed(3)), giverVelocity: giverVelocity === null ? null : Number(giverVelocity.toFixed(3)) });
     }
-    return { receiverRows, giverRows, handTime, passTime, startTiming, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, requiredLeadTime, markShiftDistance, footLength, requiredMarkShift, requiredMarkShiftDistance, requiredFootCount, footReferenceRows, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
+    return { receiverRows, giverRows, handTime, passTime, startTiming, startTimingDiffFromPerfect, handDistance, passDistance, handToPassTime: passTime - handTime, handToPassDistance: passDistance - handDistance, baton30Time, baton40Time, estimatedPerfectPassDistance, intersectionDistance, intersectionReceiverTime, passToIntersectionDistance, perfectPassDifference, startAdjustmentFromPerfect, requiredLeadTime, markShiftDistance, footLength, requiredMarkShift, requiredMarkShiftDistance, requiredFootCount, footReferenceRows, rawTheoretical30Time, rawTheoretical40Time, theoretical30Time, theoretical40Time, speedChartData, warnings };
   }, [form]);
 
   const smoothness = classifyPassSmoothness(result.handToPassDistance);
@@ -1020,7 +1072,7 @@ export default function RelayBatonAnalyzerPrototype() {
 
           <section className="mt-4 space-y-3">
             <StartTimingGauge value={result.startTiming} />
-            <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100"><h2 className="text-sm font-bold text-slate-700">出のタイミングぴったし時の推定完了位置</h2><div className="mt-3 grid grid-cols-3 gap-3"><MiniMetric label="実際の完了位置" value={fmt(result.passDistance)} unit="m" /><MiniMetric label="ぴったし時の推定" value={fmt(result.estimatedPerfectPassDistance)} unit="m" /><MiniMetric label="差分" value={signedText(result.perfectPassDifference)} unit="m" /></div><p className="mt-2 text-xs leading-5 text-slate-500">実際の出のタイミングがぴったし（-0.10秒）だった場合のパス完了位置を、受け手の速度曲線から参考推定しています。タイミングのずれによって受け手や渡し手に減速が生じる場合は推定からずれるため、あくまで参考値です。</p></div>
+            <div className="rounded-3xl bg-white p-4 shadow-sm border border-slate-100"><h2 className="text-sm font-bold text-slate-700">出のタイミングぴったし時の推定完了位置</h2><div className="mt-3 grid grid-cols-3 gap-3"><MiniMetric label="実際の完了位置" value={fmt(result.passDistance)} unit="m" /><MiniMetric label="ぴったし時の推定" value={fmt(result.estimatedPerfectPassDistance)} unit="m" /><MiniMetric label="差分" value={signedText(result.perfectPassDifference)} unit="m" /></div><p className="mt-2 text-xs leading-5 text-slate-500">実際の出のタイミングがぴったし（-0.08秒）だった場合のパス完了位置を、受け手の速度曲線から参考推定しています。タイミングのずれによって受け手や渡し手に減速が生じる場合は推定からずれるため、あくまで参考値です。</p></div>
           </section>
 
           <section className="mt-4 rounded-3xl bg-white p-4 shadow-sm border border-slate-100">
